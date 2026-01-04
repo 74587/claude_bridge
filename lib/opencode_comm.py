@@ -22,6 +22,37 @@ from terminal import get_backend_for_session, get_pane_id_from_session
 apply_backend_env()
 
 
+def compute_opencode_project_id(work_dir: Path) -> str:
+    """
+    Compute OpenCode projectID for a directory.
+
+    OpenCode's current behavior (for git worktrees) uses the lexicographically smallest
+    root commit hash from `git rev-list --max-parents=0 --all` as the projectID.
+    Non-git directories fall back to "global".
+    """
+    try:
+        cwd = Path(work_dir).expanduser()
+    except Exception:
+        cwd = Path.cwd()
+
+    try:
+        import subprocess
+
+        proc = subprocess.run(
+            ["git", "rev-list", "--max-parents=0", "--all"],
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        roots = [line.strip() for line in (proc.stdout or "").splitlines() if line.strip()]
+        roots.sort()
+        return roots[0] if roots else "global"
+    except Exception:
+        return "global"
+
+
 def _normalize_path_for_match(value: str) -> str:
     try:
         path = Path(value).expanduser()
@@ -93,7 +124,13 @@ class OpenCodeLogReader:
     def __init__(self, root: Path = OPENCODE_STORAGE_ROOT, work_dir: Optional[Path] = None, project_id: str = "global"):
         self.root = Path(root).expanduser()
         self.work_dir = work_dir or Path.cwd()
-        self.project_id = (os.environ.get("OPENCODE_PROJECT_ID") or project_id or "global").strip() or "global"
+        env_project_id = (os.environ.get("OPENCODE_PROJECT_ID") or "").strip()
+        explicit_project_id = bool(env_project_id) or ((project_id or "").strip() not in ("", "global"))
+        self.project_id = (env_project_id or project_id or "global").strip() or "global"
+        if not explicit_project_id:
+            detected = self._detect_project_id_for_workdir()
+            if detected:
+                self.project_id = detected
 
         try:
             poll = float(os.environ.get("OPENCODE_POLL_INTERVAL", "0.05"))
@@ -151,6 +188,62 @@ class OpenCodeLogReader:
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
+
+    def _detect_project_id_for_workdir(self) -> Optional[str]:
+        """
+        Auto-detect OpenCode projectID based on storage/project/*.json.
+
+        Without this, using the default "global" project can accidentally bind to an unrelated
+        session whose directory is a parent of the current cwd, causing reply polling to miss.
+        """
+        projects_dir = self.root / "project"
+        if not projects_dir.exists():
+            return None
+
+        work_candidates = self._work_dir_candidates()
+        best_id: str | None = None
+        best_score: tuple[int, int, float] = (-1, -1, -1.0)
+
+        try:
+            paths = [p for p in projects_dir.glob("*.json") if p.is_file()]
+        except Exception:
+            paths = []
+
+        for path in paths:
+            payload = self._load_json(path)
+
+            pid = payload.get("id") if isinstance(payload.get("id"), str) and payload.get("id") else path.stem
+            worktree = payload.get("worktree")
+            if not isinstance(pid, str) or not pid:
+                continue
+            if not isinstance(worktree, str) or not worktree:
+                continue
+
+            worktree_norm = _normalize_path_for_match(worktree)
+            if not worktree_norm:
+                continue
+
+            # Require the project worktree to contain our cwd (avoid picking an arbitrary child project
+            # when running from a higher-level directory).
+            if not any(_path_is_same_or_parent(worktree_norm, c) for c in work_candidates):
+                continue
+
+            updated = (payload.get("time") or {}).get("updated")
+            try:
+                updated_i = int(updated)
+            except Exception:
+                updated_i = -1
+            try:
+                mtime = path.stat().st_mtime
+            except Exception:
+                mtime = 0.0
+
+            score = (len(worktree_norm), updated_i, mtime)
+            if score > best_score:
+                best_id = pid
+                best_score = score
+
+        return best_id
 
     def _get_latest_session(self) -> Optional[dict]:
         sessions_dir = self._session_dir()
@@ -277,14 +370,23 @@ class OpenCodeLogReader:
 
     @staticmethod
     def _extract_text(parts: List[dict]) -> str:
-        out: list[str] = []
-        for part in parts:
-            if part.get("type") != "text":
-                continue
-            text = part.get("text")
-            if isinstance(text, str) and text:
-                out.append(text)
-        return "".join(out).strip()
+        def _collect(types: set[str]) -> str:
+            out: list[str] = []
+            for part in parts:
+                if part.get("type") not in types:
+                    continue
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    out.append(text)
+            return "".join(out).strip()
+
+        # Prefer final visible content when present.
+        text = _collect({"text"})
+        if text:
+            return text
+
+        # Fallback: some OpenCode runs only emit reasoning parts without a separate "text" part.
+        return _collect({"reasoning"})
 
     def capture_state(self) -> Dict[str, Any]:
         session_entry = self._get_latest_session()
@@ -583,4 +685,3 @@ class OpenCodeCommunicator:
         except Exception as exc:
             print(f"❌ Sync ask failed: {exc}")
             return None
-
