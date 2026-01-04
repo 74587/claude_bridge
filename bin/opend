@@ -3,6 +3,7 @@
 opend - View latest OpenCode reply
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -15,6 +16,26 @@ from compat import setup_windows_encoding
 setup_windows_encoding()
 
 from i18n import t
+
+
+def _load_project_id() -> str:
+    """Load project_id from .opencode-session or compute from cwd"""
+    session_file = Path.cwd() / '.opencode-session'
+    work_dir = Path.cwd()
+
+    if session_file.exists():
+        try:
+            with session_file.open('r', encoding='utf-8-sig') as f:
+                data = json.load(f)
+            wd = data.get('work_dir')
+            if wd:
+                work_dir = Path(wd)
+        except Exception:
+            pass
+
+    from opencode_comm import compute_opencode_project_id
+    return compute_opencode_project_id(work_dir)
+
 
 try:
     from cli_output import EXIT_ERROR, EXIT_NO_REPLY, EXIT_OK
@@ -34,7 +55,8 @@ def main(argv: list[str]) -> int:
             print("Usage: opend", file=sys.stderr)
             return EXIT_OK
 
-        reader = OpenCodeLogReader()
+        project_id = _load_project_id()
+        reader = OpenCodeLogReader(project_id=project_id)
         message = reader.latest_message()
         if not message:
             print(t("no_reply_available", provider="OpenCode"), file=sys.stderr)
