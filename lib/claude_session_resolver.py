@@ -284,12 +284,8 @@ def resolve_claude_session(work_dir: Path) -> Optional[ClaudeSessionResolution]:
             continue
         if not allow_cross and strict_project:
             record_pid = _record_project_id(record)
-            if record_pid and current_pid and record_pid != current_pid:
-                data = _data_from_registry(record, work_dir)
-                session_file = _session_file_from_record(record) or find_project_session_file(work_dir, ".claude-session")
-                candidate = _select_resolution(data, session_file, record, f"registry:{key}:mismatch")
-                consider(candidate)
-                break
+            if not record_pid or (current_pid and record_pid != current_pid):
+                continue
         data = _data_from_registry(record, work_dir)
         session_file = _session_file_from_record(record) or find_project_session_file(work_dir, ".claude-session")
         candidate = _select_resolution(data, session_file, record, f"registry:{key}")
@@ -340,12 +336,17 @@ def resolve_claude_session(work_dir: Path) -> Optional[ClaudeSessionResolution]:
     if pane_id:
         record = load_registry_by_claude_pane(pane_id)
         if isinstance(record, dict):
-            data = _data_from_registry(record, work_dir)
-            session_file = _session_file_from_record(record) or find_project_session_file(work_dir, ".claude-session")
-            candidate = _select_resolution(data, session_file, record, "registry:pane")
-            resolved = consider(candidate)
-            if resolved:
-                return resolved
+            if not allow_cross and strict_project:
+                record_pid = _record_project_id(record)
+                if not record_pid or (current_pid and record_pid != current_pid):
+                    record = None
+            if record:
+                data = _data_from_registry(record, work_dir)
+                session_file = _session_file_from_record(record) or find_project_session_file(work_dir, ".claude-session")
+                candidate = _select_resolution(data, session_file, record, "registry:pane")
+                resolved = consider(candidate)
+                if resolved:
+                    return resolved
 
     if best_fallback:
         if not best_fallback.session_file:
