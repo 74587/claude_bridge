@@ -221,10 +221,6 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 install
 ### Run
 ```bash
 ccb                    # Start providers from ccb.config (default: all four)
-ccb codex              # Start Codex only
-ccb gemini             # Start Gemini only
-ccb opencode           # Start OpenCode only
-ccb claude             # Start Claude only
 ccb codex gemini       # Start both
 ccb codex gemini opencode claude  # Start all four (spaces)
 ccb codex,gemini,opencode,claude  # Start all four (commas)

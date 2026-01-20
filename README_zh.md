@@ -211,10 +211,6 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 install
 ### 启动
 ```bash
 ccb                    # 按 ccb.config 启动（默认：四个全开）
-ccb codex              # 仅启动 Codex
-ccb gemini             # 仅启动 Gemini
-ccb opencode           # 仅启动 OpenCode
-ccb claude             # 仅启动 Claude
 ccb codex gemini       # 同时启动两个
 ccb codex gemini opencode claude  # 同时启动四个（空格分隔）
 ccb codex,gemini,opencode,claude  # 同时启动四个（逗号分隔）
