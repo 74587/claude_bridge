@@ -1,6 +1,6 @@
 <div align="center">
 
-# Claude Code Bridge (ccb) v5.0.5
+# Claude Code Bridge (ccb) v5.1.0
 
 **基于终端分屏的全新多模型交互协作工具**
 **Claude & Codex & Gemini & OpenCode & Droid**
@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/模型皆可控-CF1322?style=for-the-badge" alt="模型皆可控">
 </p>
 
-[![Version](https://img.shields.io/badge/version-5.0.5-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-5.1.0-orange.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 
 [English](README.md) | **中文**
@@ -51,6 +51,34 @@
 <h2 align="center">🚀 新版本速览</h2>
 
 <details open>
+<summary><b>v5.1.0</b> - 统一命令系统 + Windows WezTerm 支持</summary>
+
+**🚀 统一命令** - 用统一接口替代各 provider 独立命令：
+
+| 旧命令 | 新统一命令 |
+|--------|-----------|
+| `cask`, `gask`, `oask`, `dask`, `lask` | `ask <provider> <message>` |
+| `cping`, `gping`, `oping`, `dping`, `lping` | `ping <provider>` |
+| `cpend`, `gpend`, `opend`, `dpend`, `lpend` | `pend <provider> [N]` |
+
+**支持的 provider:** `gemini`, `codex`, `opencode`, `droid`, `claude`
+
+**🪟 Windows WezTerm + PowerShell 支持：**
+- 完整的 Windows 原生支持（WezTerm 终端）
+- 使用 PowerShell + `DETACHED_PROCESS` 后台执行
+- WezTerm CLI 集成，支持大消息通过 stdin 传递
+- UTF-8 BOM 处理，兼容 PowerShell 生成的文件
+
+**📦 新技能：**
+- `/ask <provider> <message>` - 异步请求 AI provider
+- `/ping <provider>` - 测试 provider 连通性
+- `/pend <provider> [N]` - 查看最新回复
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
+
+</details>
+
+<details>
 <summary><b>v5.0.5</b> - Droid 调度工具与安装</summary>
 
 - **Droid**：新增调度工具（`ccb_ask_*` 以及 `cask/gask/lask/oask` 别名）。
