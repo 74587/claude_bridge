@@ -435,43 +435,41 @@ Once started, collaborate naturally. Claude will detect when to delegate tasks.
 
 ---
 
-## 📝 Command Reference
+## 🛠️ Unified Command System
 
-### Codex Commands
+### Legacy Commands (Deprecated)
+- `cask/gask/oask/dask/lask` - Independent ask commands per provider
+- `cping/gping/oping/dping/lping` - Independent ping commands  
+- `cpend/gpend/opend/dpend/lpend` - Independent pend commands
 
-| Command | Description |
-| :--- | :--- |
-| `/cask <msg>` | Background mode: Submit task to Codex, free to continue other tasks (recommended) |
-| `cpend [N]` | Fetch Codex conversation history, N controls rounds (default 1) |
-| `cping` | Test Codex connectivity |
+### Unified Commands
+- **`ask <provider> <message>`** - Unified asynchronous request
+  - Supports: `gemini`, `codex`, `opencode`, `droid`, `claude`
+  - Runs in background; triggers completion hook upon finish
+  - Supports `--notify` for synchronous notifications
+  - Supports `CCB_CALLER` env var to specify the caller
 
-### Gemini Commands
+- **`ping <provider>`** - Unified connectivity test
+  - Checks if the specified provider's daemon is online
 
-| Command | Description |
-| :--- | :--- |
-| `/gask <msg>` | Background mode: Submit task to Gemini |
-| `gpend [N]` | Fetch Gemini conversation history |
-| `gping` | Test Gemini connectivity |
+- **`pend <provider> [N]`** - Unified reply fetch
+  - Fetches latest N replies from the provider
+  - Optional N specifies number of recent messages
 
-### OpenCode Commands
+### Skills System
+- `/ask <provider> <message>` - Asynchronous request skill
+- `/ping <provider>` - Connectivity test skill
+- `/pend <provider>` - Reply fetch skill
 
-| Command | Description |
-| :--- | :--- |
-| `/oask <msg>` | Background mode: Submit task to OpenCode |
-| `opend [N]` | Fetch OpenCode conversation history |
-| `oping` | Test OpenCode connectivity |
+### Cross-Platform Support
+- **Linux/macOS/WSL**: Uses `tmux` as terminal backend
+- **Windows WezTerm**: Uses **PowerShell** as terminal backend
+- **Windows PowerShell**: Native support via `DETACHED_PROCESS` background execution
 
-### Droid Commands
-
-| Command | Description |
-| :--- | :--- |
-| `/dask <msg>` | Background mode: Submit task to Droid |
-| `dpend [N]` | Fetch Droid conversation history |
-| `dping` | Test Droid connectivity |
-
-**🚀 Delegation Power:** Droid can now orchestrate other AIs (Codex, Gemini, OpenCode, Claude).
-Run `ccb droid setup-delegation` to install the necessary skills and tools into Droid.
-Once setup, Droid can use CCB delegation tools (e.g. `cask/gask/lask/oask` or `ccb_ask_*`) to delegate tasks in the background.
+### Completion Hook
+- Notifies caller upon task completion
+- Supports `CCB_CALLER` targeting (`claude`/`codex`/`droid`)
+- Compatible with both tmux and WezTerm backends
 
 ---
 

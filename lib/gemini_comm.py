@@ -628,6 +628,13 @@ class GeminiCommunicator:
                     if isinstance(file_data, dict):
                         result["gemini_session_path"] = file_data.get("gemini_session_path")
                         result["_session_file"] = str(session_file)
+                        # Fix: also read pane_id from session file for tmux
+                        if not result["pane_id"]:
+                            result["pane_id"] = file_data.get("pane_id", "")
+                        if not result["tmux_session"]:
+                            result["tmux_session"] = file_data.get("tmux_session", "")
+                        if not result.get("pane_title_marker"):
+                            result["pane_title_marker"] = file_data.get("pane_title_marker", "")
                 except Exception:
                     pass
             return result

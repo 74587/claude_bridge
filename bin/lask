@@ -45,15 +45,16 @@ IMPORTANT: Task submitted to Claude. You MUST:
 
 
 def _usage() -> None:
-    print("Usage: lask [--async] [--sync] [--session-file FILE] [--timeout SECONDS] [--output FILE] <message>", file=sys.stderr)
+    print("Usage: lask [--async] [--sync] [--no-wrap] [--session-file FILE] [--timeout SECONDS] [--output FILE] <message>", file=sys.stderr)
 
 
-def _parse_args(argv: list[str]) -> Tuple[Optional[Path], float, str, bool, Optional[str], bool, bool]:
+def _parse_args(argv: list[str]) -> Tuple[Optional[Path], float, str, bool, Optional[str], bool, bool, bool]:
     output: Optional[Path] = None
     timeout: Optional[float] = None
     quiet = False
     async_mode = False
     sync_mode = False
+    no_wrap = False
     session_file: Optional[str] = None
     parts: list[str] = []
 
@@ -70,6 +71,9 @@ def _parse_args(argv: list[str]) -> Tuple[Optional[Path], float, str, bool, Opti
             continue
         if token == "--sync":
             sync_mode = True
+            continue
+        if token == "--no-wrap":
+            no_wrap = True
             continue
         if token == "--session-file":
             try:
@@ -101,12 +105,12 @@ def _parse_args(argv: list[str]) -> Tuple[Optional[Path], float, str, bool, Opti
             timeout = -1.0
     if async_mode:
         timeout = 0.0
-    return output, timeout, message, quiet, session_file, async_mode, sync_mode
+    return output, timeout, message, quiet, session_file, async_mode, sync_mode, no_wrap
 
 
 def main(argv: list[str]) -> int:
     try:
-        output_path, timeout, message, quiet, session_file, async_mode, sync_mode = _parse_args(argv)
+        output_path, timeout, message, quiet, session_file, async_mode, sync_mode, no_wrap = _parse_args(argv)
         if not message and not sys.stdin.isatty():
             message = read_stdin_text().strip()
         if not message:
@@ -114,6 +118,10 @@ def main(argv: list[str]) -> int:
             return EXIT_ERROR
         if async_mode:
             sync_mode = False
+
+        # Set no_wrap flag via environment variable
+        if no_wrap:
+            os.environ["CCB_NO_WRAP"] = "1"
 
         work_dir, _ = resolve_work_dir_with_registry(
             LASK_CLIENT_SPEC,
@@ -123,10 +131,10 @@ def main(argv: list[str]) -> int:
         )
 
         state_file = state_file_from_env(LASK_CLIENT_SPEC.state_file_env)
-        daemon_result = try_daemon_request(LASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file)
+        daemon_result = try_daemon_request(LASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file, output_path=output_path)
         if daemon_result is None and maybe_start_daemon(LASK_CLIENT_SPEC, work_dir):
             wait_for_daemon_ready(LASK_CLIENT_SPEC, timeout_s=min(2.0, max(0.2, float(timeout))), state_file=state_file)
-            daemon_result = try_daemon_request(LASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file)
+            daemon_result = try_daemon_request(LASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file, output_path=output_path)
 
         if daemon_result is not None:
             reply, exit_code = daemon_result
@@ -140,17 +148,19 @@ def main(argv: list[str]) -> int:
                 sys.stdout.write("\n")
             return exit_code
 
-        if not sync_mode:
-            resolution = resolve_claude_session(work_dir)
-            if resolution and resolution.data:
-                data = dict(resolution.data)
-                if data.get("claude_pane_id") and not data.get("pane_id"):
-                    data["pane_id"] = data.get("claude_pane_id")
-                backend = get_backend_for_session(data) if data else None
-                pane_id = get_pane_id_from_session(data) if data else ""
-                if backend and pane_id:
-                    backend.send_text(pane_id, message)
-                    return 0
+        # Fallback: send directly to Claude pane (works for both sync and async)
+        resolution = resolve_claude_session(work_dir)
+        if resolution and resolution.data:
+            data = dict(resolution.data)
+            if data.get("claude_pane_id") and not data.get("pane_id"):
+                data["pane_id"] = data.get("claude_pane_id")
+            backend = get_backend_for_session(data) if data else None
+            pane_id = get_pane_id_from_session(data) if data else ""
+            if backend and pane_id:
+                backend.send_text(pane_id, message)
+                if not sync_mode:
+                    print(ASYNC_GUARDRAIL, file=sys.stderr, flush=True)
+                return 0
 
         if not env_bool(LASK_CLIENT_SPEC.enabled_env, True):
             print(f"[ERROR] {LASK_CLIENT_SPEC.enabled_env}=0: lask daemon mode disabled.", file=sys.stderr)

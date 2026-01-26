@@ -31,6 +31,8 @@ class LaskdRequest:
     quiet: bool
     message: str
     output_path: str | None = None
+    req_id: str | None = None
+    no_wrap: bool = False
 
 
 @dataclass(frozen=True)

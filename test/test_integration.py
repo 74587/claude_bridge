@@ -57,7 +57,7 @@ def daemon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[tuple[P
             "v": 1,
             "id": msg.get("id"),
             "exit_code": 0,
-            "reply": f"echo:{msg.get('message') or ''}",
+            "reply": f"echo:{msg.get('message') or ''} out:{msg.get('output_path') or ''}",
         }
 
     server = AskDaemonServer(
@@ -154,7 +154,7 @@ def test_client_try_daemon_request(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             "v": 1,
             "id": msg.get("id"),
             "exit_code": 0,
-            "reply": f"echo:{msg.get('message') or ''}",
+            "reply": f"echo:{msg.get('message') or ''} out:{msg.get('output_path') or ''}",
         }
 
     server = AskDaemonServer(
@@ -199,6 +199,7 @@ def test_client_try_daemon_request(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     work_dir.mkdir(parents=True, exist_ok=True)
     (work_dir / client_spec.session_filename).write_text("{}", encoding="utf-8")
 
+    out_path = tmp_path / "out.txt"
     reply, exit_code = try_daemon_request(
         client_spec,
         work_dir,
@@ -206,8 +207,9 @@ def test_client_try_daemon_request(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         timeout=1.0,
         quiet=True,
         state_file=state_file,
+        output_path=out_path,
     ) or (None, None)
-    assert reply == "echo:hello"
+    assert reply == f"echo:hello out:{out_path}"
     assert exit_code == 0
 
     assert askd_rpc.shutdown_daemon(spec.protocol_prefix, timeout_s=0.5, state_file=state_file) is True

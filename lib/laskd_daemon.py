@@ -130,7 +130,10 @@ class _SessionWorker(BaseSessionWorker[_QueuedTask, LaskdResult]):
                 pass
         state = log_reader.capture_state()
 
-        prompt = wrap_claude_prompt(req.message, task.req_id)
+        if req.no_wrap:
+            prompt = req.message
+        else:
+            prompt = wrap_claude_prompt(req.message, task.req_id)
         backend.send_text(pane_id, prompt)
 
         deadline = None if float(req.timeout_s) < 0.0 else (time.time() + float(req.timeout_s))
@@ -295,7 +298,7 @@ class _WorkerPool:
         self._pool = PerSessionWorkerPool[_SessionWorker]()
 
     def submit(self, request: LaskdRequest) -> _QueuedTask:
-        req_id = make_req_id()
+        req_id = request.req_id or make_req_id()
         task = _QueuedTask(request=request, created_ms=_now_ms(), req_id=req_id, done_event=threading.Event())
 
         session = load_project_session(Path(request.work_dir))
@@ -324,6 +327,8 @@ class LaskdServer:
                     quiet=bool(msg.get("quiet") or False),
                     message=str(msg.get("message") or ""),
                     output_path=str(msg.get("output_path")) if msg.get("output_path") else None,
+                    req_id=str(msg.get("req_id")) if msg.get("req_id") else None,
+                    no_wrap=bool(msg.get("no_wrap") or False),
                 )
             except Exception as exc:
                 return {"type": "lask.response", "v": 1, "id": msg.get("id"), "exit_code": 1, "reply": f"Bad request: {exc}"}

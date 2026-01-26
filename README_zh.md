@@ -466,43 +466,41 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
 
 ---
 
-## 📝 命令详情
+## 🛠️ 统一命令系统
 
-### Codex 命令
+### 旧命令（已废弃）
+- `cask/gask/oask/dask/lask` - 各 provider 独立的 ask 命令
+- `cping/gping/oping/dping/lping` - 各 provider 独立的 ping 命令  
+- `cpend/gpend/opend/dpend/lpend` - 各 provider 独立的 pend 命令
 
-| 命令 | 说明 |
-| :--- | :--- |
-| `/cask <消息>` | 后台模式：提交任务给 Codex，前台释放可继续其他任务（推荐） |
-| `cpend [N]` | 调取当前 Codex 会话的对话记录，N 控制轮数（默认 1） |
-| `cping` | 测试 Codex 连通性 |
+### 新统一命令
+- **`ask <provider> <message>`** - 统一的异步请求命令
+  - 支持 provider: `gemini`, `codex`, `opencode`, `droid`, `claude`
+  - 自动后台执行，完成后通过 completion hook 回调
+  - 支持 `--notify` 模式用于同步通知
+  - 支持 `CCB_CALLER` 环境变量指定发起者
 
-### Gemini 命令
+- **`ping <provider>`** - 统一的连通性测试命令
+  - 测试指定 provider 的 daemon 是否在线
 
-| 命令 | 说明 |
-| :--- | :--- |
-| `/gask <消息>` | 后台模式：提交任务给 Gemini |
-| `gpend [N]` | 调取当前 Gemini 会话的对话记录 |
-| `gping` | 测试 Gemini 连通性 |
+- **`pend <provider> [N]`** - 统一的查看回复命令
+  - 查看指定 provider 的最新回复
+  - 可选参数 N 指定查看最近 N 条
 
-### OpenCode 命令
+### 技能系统 (Skills)
+- `/ask <provider> <message>` - 异步请求技能
+- `/ping <provider>` - 连通性测试技能
+- `/pend <provider>` - 查看回复技能
 
-| 命令 | 说明 |
-| :--- | :--- |
-| `/oask <消息>` | 后台模式：提交任务给 OpenCode |
-| `opend [N]` | 调取当前 OpenCode 会话的对话记录 |
-| `oping` | 测试 OpenCode 连通性 |
+### 跨平台支持
+- **Linux/macOS/WSL**: 使用 `tmux` 作为终端后端
+- **Windows WezTerm**: 使用 **PowerShell** 作为终端后端
+- **Windows PowerShell**: 原生支持，使用 DETACHED_PROCESS 后台执行
 
-### Droid 指令
-
-| 指令 | 说明 |
-| :--- | :--- |
-| `/dask <msg>` | 后台模式：向 Droid 提交任务 |
-| `dpend [N]` | 获取 Droid 对话历史 |
-| `dping` | 测试 Droid 连接状态 |
-
-**🚀 调度能力：** Droid 现在可以像 Codex/Claude 一样调度其他 AI（Codex/Gemini/OpenCode/Claude）。
-运行 `ccb droid setup-delegation` 即可将必要的技能和工具安装到 Droid 中。
-配置完成后，Droid 即可使用 CCB 的调度工具（如 `cask/gask/lask/oask` 或 `ccb_ask_*`）在后台委派任务。
+### Completion Hook
+- 任务完成后自动通知发起者
+- 支持 `CCB_CALLER` 指定回调目标 (claude/codex/droid)
+- 支持 tmux 和 WezTerm 两种终端后端
 
 ---
 
