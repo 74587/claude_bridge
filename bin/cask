@@ -161,10 +161,10 @@ def main(argv: list[str]) -> int:
 
         # Daemon-only: remove client-side serial lock mode.
         state_file = state_file_from_env(CASK_CLIENT_SPEC.state_file_env)
-        daemon_result = try_daemon_request(CASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file)
+        daemon_result = try_daemon_request(CASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file, output_path=output_path)
         if daemon_result is None and maybe_start_daemon(CASK_CLIENT_SPEC, work_dir):
             wait_for_daemon_ready(CASK_CLIENT_SPEC, timeout_s=min(2.0, max(0.2, float(timeout))), state_file=state_file)
-            daemon_result = try_daemon_request(CASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file)
+            daemon_result = try_daemon_request(CASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file, output_path=output_path)
         if daemon_result is not None:
             reply, exit_code = daemon_result
             # Inject guardrail prompt for Claude (skip in sync mode for Codex)

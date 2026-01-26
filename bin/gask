@@ -68,7 +68,13 @@ def _daemon_retry_wait_s(timeout: float) -> float:
     return min(0.3, max(0.05, float(timeout) / 50.0))
 
 
-def _daemon_request_with_retries(work_dir: Path, message: str, timeout: float, quiet: bool) -> tuple[str, int] | None:
+def _daemon_request_with_retries(
+    work_dir: Path,
+    message: str,
+    timeout: float,
+    quiet: bool,
+    output_path: Path | None,
+) -> tuple[str, int] | None:
     """
     Best-effort daemon request with retries to avoid autostart races.
 
@@ -76,7 +82,7 @@ def _daemon_request_with_retries(work_dir: Path, message: str, timeout: float, q
     """
     state_file = state_file_from_env(GASK_CLIENT_SPEC.state_file_env)
 
-    result = try_daemon_request(GASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file)
+    result = try_daemon_request(GASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file, output_path=output_path)
     if result is not None:
         return result
 
@@ -104,7 +110,7 @@ def _daemon_request_with_retries(work_dir: Path, message: str, timeout: float, q
     wait_s = _daemon_retry_wait_s(timeout)
     deadline = time.time() + min(3.0, max(0.2, float(timeout)))
     while time.time() < deadline:
-        result = try_daemon_request(GASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file)
+        result = try_daemon_request(GASK_CLIENT_SPEC, work_dir, message, timeout, quiet, state_file, output_path=output_path)
         if result is not None:
             return result
         time.sleep(wait_s)
@@ -210,7 +216,7 @@ def main(argv: list[str]) -> int:
         )
 
         # Prefer daemon mode: daemon performs per-session serialization and should accept concurrent submissions.
-        daemon_result = _daemon_request_with_retries(work_dir, message, timeout, quiet)
+        daemon_result = _daemon_request_with_retries(work_dir, message, timeout, quiet, output_path)
         if daemon_result is not None:
             reply, exit_code = daemon_result
             # Inject guardrail prompt for Claude (skip in sync mode for Codex)

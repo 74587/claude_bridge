@@ -108,18 +108,12 @@ SCRIPTS_TO_LINK=(
   bin/daskd
   bin/dpend
   bin/dping
+  bin/ccb-completion-hook
   ccb
 )
 
 CLAUDE_MARKDOWN=(
-  cpend.md
-  cping.md
-  gpend.md
-  gping.md
-  opend.md
-  oping.md
-  dpend.md
-  dping.md
+  # Old CCB commands removed - replaced by unified ask/ping/pend skills
 )
 
 LEGACY_SCRIPTS=(
@@ -586,6 +580,15 @@ install_claude_commands() {
   claude_dir="$(detect_claude_dir)"
   mkdir -p "$claude_dir"
 
+  # Clean up obsolete CCB commands (replaced by unified ask/ping/pend)
+  local obsolete_cmds="cask.md gask.md oask.md dask.md lask.md cpend.md gpend.md opend.md dpend.md lpend.md cping.md gping.md oping.md dping.md lping.md"
+  for obs_cmd in $obsolete_cmds; do
+    if [[ -f "$claude_dir/$obs_cmd" ]]; then
+      rm -f "$claude_dir/$obs_cmd"
+      echo "  Removed obsolete command: $obs_cmd"
+    fi
+  done
+
   for doc in "${CLAUDE_MARKDOWN[@]}"; do
     cp -f "$REPO_ROOT/commands/$doc" "$claude_dir/$doc"
     chmod 0644 "$claude_dir/$doc" 2>/dev/null || true
@@ -603,6 +606,16 @@ install_claude_skills() {
   fi
 
   mkdir -p "$skills_dst"
+
+  # Clean up obsolete CCB skills (replaced by unified ask/ping/pend)
+  local obsolete_skills="cask gask oask dask lask cpend gpend opend dpend lpend cping gping oping dping lping"
+  for obs_skill in $obsolete_skills; do
+    if [[ -d "$skills_dst/$obs_skill" ]]; then
+      rm -rf "$skills_dst/$obs_skill"
+      echo "  Removed obsolete skill: $obs_skill"
+    fi
+  done
+
   echo "Installing Claude skills (bash SKILL.md templates)..."
   for skill_dir in "$skills_src"/*/; do
     [[ -d "$skill_dir" ]] || continue
@@ -654,6 +667,16 @@ install_codex_skills() {
   fi
 
   mkdir -p "$skills_dst"
+
+  # Clean up obsolete CCB skills (replaced by unified ask/ping/pend)
+  local obsolete_skills="cask gask oask dask lask cpend gpend opend dpend lpend cping gping oping dping lping"
+  for obs_skill in $obsolete_skills; do
+    if [[ -d "$skills_dst/$obs_skill" ]]; then
+      rm -rf "$skills_dst/$obs_skill"
+      echo "  Removed obsolete skill: $obs_skill"
+    fi
+  done
+
   echo "Installing Codex skills (bash SKILL.md templates)..."
   for skill_dir in "$skills_src"/*/; do
     [[ -d "$skill_dir" ]] || continue
@@ -690,7 +713,7 @@ install_codex_skills() {
 
 install_droid_skills() {
   local skills_src="$REPO_ROOT/droid_skills"
-  local skills_dst="${DROID_HOME:-$HOME/.droid}/skills"
+  local skills_dst="${FACTORY_HOME:-$HOME/.factory}/skills"
 
   if [[ ! -d "$skills_src" ]]; then
     return
@@ -701,7 +724,17 @@ install_droid_skills() {
   fi
 
   mkdir -p "$skills_dst"
-  echo "Installing Droid skills..."
+
+  # Clean up obsolete CCB skills (replaced by unified ask/ping/pend)
+  local obsolete_skills="cask gask oask dask lask cpend gpend opend dpend lpend cping gping oping dping lping"
+  for obs_skill in $obsolete_skills; do
+    if [[ -d "$skills_dst/$obs_skill" ]]; then
+      rm -rf "$skills_dst/$obs_skill"
+      echo "  Removed obsolete skill: $obs_skill"
+    fi
+  done
+
+  echo "Installing Droid/Factory skills..."
   for skill_dir in "$skills_src"/*/; do
     [[ -d "$skill_dir" ]] || continue
     local skill_name
@@ -728,9 +761,9 @@ install_droid_skills() {
       fi
     done
 
-    echo "  Updated Droid skill: $skill_name"
+    echo "  Updated Factory skill: $skill_name"
   done
-  echo "Updated Droid skills directory: $skills_dst"
+  echo "Updated Factory skills directory: $skills_dst"
 }
 
 install_droid_delegation() {

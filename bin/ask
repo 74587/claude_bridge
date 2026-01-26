@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""
+ask - Unified command to send messages to different AI providers.
+
+Usage:
+    ask <provider> [options] <message>
+
+Providers:
+    gemini, codex, opencode, droid, claude
+
+Modes:
+    Default (async):  Background task with hook callback
+    --notify:         Sync send, no wait for reply (for notifications)
+
+Examples:
+    ask gemini "12+12=?"
+    ask claude --notify --no-wrap "Task completed"
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+
+from compat import read_stdin_text, setup_windows_encoding
+setup_windows_encoding()
+
+from cli_output import EXIT_ERROR, EXIT_OK
+
+
+# Provider to daemon command mapping
+PROVIDER_DAEMONS = {
+    "gemini": "gask",
+    "codex": "cask",
+    "opencode": "oask",
+    "droid": "dask",
+    "claude": "lask",
+}
+
+
+def make_task_id() -> str:
+    """Generate task ID: YYYYMMDD-HHMMSS-mmm-PID"""
+    now = datetime.now()
+    ms = now.microsecond // 1000
+    return f"{now.strftime('%Y%m%d-%H%M%S')}-{ms:03d}-{os.getpid()}"
+
+
+def _usage() -> None:
+    print("Usage: ask <provider> [options] <message>", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Providers:", file=sys.stderr)
+    print("  gemini, codex, opencode, droid, claude", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Options:", file=sys.stderr)
+    print("  -h, --help              Show this help message", file=sys.stderr)
+    print("  -t, --timeout SECONDS   Request timeout (default: 3600)", file=sys.stderr)
+    print("  --notify                Sync send, no wait for reply (for notifications)", file=sys.stderr)
+    print("  --no-wrap               Don't wrap with CCB protocol markers", file=sys.stderr)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) <= 1:
+        _usage()
+        return EXIT_ERROR
+
+    # First argument must be the provider
+    provider = argv[1].lower()
+
+    if provider in ("-h", "--help"):
+        _usage()
+        return EXIT_OK
+
+    if provider not in PROVIDER_DAEMONS:
+        print(f"[ERROR] Unknown provider: {provider}", file=sys.stderr)
+        print(f"[ERROR] Available: {', '.join(PROVIDER_DAEMONS.keys())}", file=sys.stderr)
+        return EXIT_ERROR
+
+    daemon_cmd = PROVIDER_DAEMONS[provider]
+
+    # Parse remaining arguments
+    timeout: float = 3600.0
+    notify_mode = False
+    no_wrap = False
+    parts: list[str] = []
+
+    it = iter(argv[2:])
+    for token in it:
+        if token in ("-h", "--help"):
+            _usage()
+            return EXIT_OK
+        if token in ("-t", "--timeout"):
+            try:
+                timeout = float(next(it))
+            except StopIteration:
+                print("[ERROR] --timeout requires a number", file=sys.stderr)
+                return EXIT_ERROR
+            except ValueError:
+                print("[ERROR] --timeout must be a number", file=sys.stderr)
+                return EXIT_ERROR
+            continue
+        if token == "--notify":
+            notify_mode = True
+            continue
+        if token == "--no-wrap":
+            no_wrap = True
+            continue
+        parts.append(token)
+
+    message = " ".join(parts).strip()
+    if not message and not sys.stdin.isatty():
+        message = read_stdin_text().strip()
+    if not message:
+        print("[ERROR] Message cannot be empty", file=sys.stderr)
+        return EXIT_ERROR
+
+    # Notify mode: sync send, no wait for reply (used for hook notifications)
+    if notify_mode:
+        cmd = [daemon_cmd, "--sync"]
+        if no_wrap:
+            cmd.append("--no-wrap")
+        try:
+            result = subprocess.run(
+                cmd,
+                input=message,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            return result.returncode
+        except subprocess.TimeoutExpired:
+            return EXIT_OK
+        except Exception as e:
+            print(f"[ERROR] {e}", file=sys.stderr)
+            return EXIT_ERROR
+
+    # Default async mode: background task with hook callback
+    task_id = make_task_id()
+    log_dir = Path(tempfile.gettempdir()) / "ccb-tasks"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"ask-{provider}-{task_id}.log"
+
+    # Detect caller from environment or default to "claude"
+    caller = os.environ.get("CCB_CALLER", "claude")
+
+    # Platform-specific background execution
+    if os.name == "nt":
+        # Windows: use PowerShell script to avoid .cmd escaping issues
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NO_WINDOW = 0x08000000
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+        # Write message to temp file to avoid escaping issues
+        msg_file = log_dir / f"ask-{provider}-{task_id}.msg"
+        msg_file.write_text(message, encoding="utf-8")
+
+        # Write PowerShell script
+        script_file = log_dir / f"ask-{provider}-{task_id}.ps1"
+        # Use here-string and file input to avoid all escaping issues
+        script_content = f'''$ErrorActionPreference = "SilentlyContinue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$env:CCB_REQ_ID = "{task_id}"
+$env:CCB_CALLER = "{caller}"
+$env:CCB_WORK_DIR = "{os.getcwd()}"
+Get-Content -Path "{msg_file}" -Encoding UTF8 | & {daemon_cmd} --timeout {timeout}
+'''
+        script_file.write_text(script_content, encoding="utf-8")
+
+        subprocess.Popen(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", str(script_file)],
+            stdin=subprocess.DEVNULL,
+            stdout=open(log_file, "w"),
+            stderr=subprocess.STDOUT,
+            creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
+        )
+    else:
+        # Unix: use nohup to ensure process survives terminal close
+        bg_script = f'''
+export CCB_REQ_ID="{task_id}"
+export CCB_CALLER="{caller}"
+export CCB_WORK_DIR="{os.getcwd()}"
+{daemon_cmd} --timeout {timeout} <<'ASKEOF'
+{message}
+ASKEOF
+'''
+        # Write script to temp file for nohup execution
+        script_file = log_dir / f"ask-{provider}-{task_id}.sh"
+        script_file.write_text(bg_script, encoding="utf-8")
+        script_file.chmod(0o755)
+
+        # Use nohup to run in background, independent of terminal
+        subprocess.Popen(
+            f'nohup sh "{script_file}" > "{log_file}" 2>&1 &',
+            shell=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    print(f"{provider.capitalize()} processing (task: {task_id}, log: {log_file})...")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

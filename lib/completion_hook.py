@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Optional
@@ -28,32 +29,41 @@ def _run_hook_async(provider: str, output_file: Optional[str], reply: str, req_i
 
     def _run():
         try:
-            # Find ccb-completion-hook script
+            # Find ccb-completion-hook script (Python script only, not .cmd wrapper)
             script_paths = [
                 Path(__file__).parent.parent / "bin" / "ccb-completion-hook",
                 Path.home() / ".local" / "bin" / "ccb-completion-hook",
                 Path("/usr/local/bin/ccb-completion-hook"),
             ]
+            # On Windows, check installed location (Python script, not .cmd)
+            if os.name == "nt":
+                localappdata = os.environ.get("LOCALAPPDATA", "")
+                if localappdata:
+                    # The actual Python script is in the bin folder without extension
+                    script_paths.insert(0, Path(localappdata) / "codex-dual" / "bin" / "ccb-completion-hook")
+
             script = None
             for p in script_paths:
-                if p.exists():
+                if p.exists() and p.suffix not in (".cmd", ".bat"):
                     script = str(p)
                     break
 
             if not script:
                 return
 
+            # Use sys.executable to run the script (cross-platform, no shebang dependency)
             cmd = [
+                sys.executable,
                 script,
                 "--provider", provider,
                 "--caller", caller,
-                "--reply", reply[:500] if reply else "",
                 "--req-id", req_id,
             ]
             if output_file:
                 cmd.extend(["--output", output_file])
 
-            subprocess.run(cmd, capture_output=True, timeout=10)
+            # Pass reply via stdin to avoid command line length limits
+            subprocess.run(cmd, input=(reply or "").encode("utf-8"), capture_output=True, timeout=10)
         except Exception:
             pass
 

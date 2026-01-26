@@ -16,10 +16,20 @@ Environment:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Add lib directory to path for imports
+script_dir = Path(__file__).resolve().parent
+lib_dir = script_dir.parent / "lib"
+sys.path.insert(0, str(lib_dir))
+
+from compat import read_stdin_text, setup_windows_encoding
+
+setup_windows_encoding()
 
 
 def env_bool(name: str, default: bool = True) -> bool:
@@ -39,106 +49,78 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
-def main() -> int:
-    if not env_bool("CCB_COMPLETION_HOOK_ENABLED", True):
-        return 0
+def load_session_file(session_path: Path) -> dict:
+    """Load session file with utf-8-sig encoding (handles BOM from PowerShell)."""
+    try:
+        with open(session_path, encoding="utf-8-sig") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
-    parser = argparse.ArgumentParser(description="CCB Completion Hook")
-    parser.add_argument("--provider", required=True, help="Provider name (codex/gemini/opencode/droid)")
-    parser.add_argument("--caller", default="claude", help="Who initiated the request (claude/codex/droid)")
-    parser.add_argument("--output", default="", help="Output file path (optional)")
-    parser.add_argument("--reply", default="", help="Reply text (optional)")
-    parser.add_argument("--req-id", default="", help="Request ID")
-    args = parser.parse_args()
 
-    provider = args.provider.lower()
-    caller = args.caller.lower()
-    output_file = args.output or None
-    reply_preview = (args.reply or "")[:200]
-
-    # Construct notification message
-    provider_names = {
-        "codex": "Codex",
-        "gemini": "Gemini",
-        "opencode": "OpenCode",
-        "droid": "Droid",
-    }
-    provider_display = provider_names.get(provider, provider.capitalize())
-    req_id = args.req_id or "unknown"
-
-    if output_file:
-        message = f"""CCB_REQ_ID: {req_id}
-
-[CCB_TASK_COMPLETED]
-Provider: {provider_display}
-Output file: {output_file}
-
-Result preview: {reply_preview}
-"""
+def send_via_terminal(pane_id: str, message: str, terminal: str, session_data: dict) -> bool:
+    """Send message via terminal backend (tmux or wezterm)."""
+    if terminal == "wezterm":
+        return send_via_wezterm(pane_id, message, session_data)
     else:
-        message = f"""CCB_REQ_ID: {req_id}
+        return send_via_tmux(pane_id, message)
 
-[CCB_TASK_COMPLETED]
-Provider: {provider_display}
 
-Result: {reply_preview}
-"""
-
-    # Find caller's pane_id from session file
-    session_files = {
-        "claude": ".claude-session",
-        "codex": ".codex-session",
-        "droid": ".droid-session",
-    }
-    session_filename = session_files.get(caller, ".claude-session")
-
-    # Search for session file in common locations
-    work_dir = os.environ.get("CCB_WORK_DIR", os.getcwd())
-    search_paths = [
-        Path(work_dir) / ".ccb_config" / session_filename,
-        Path.home() / ".local" / "share" / "codex-dual" / ".ccb_config" / session_filename,
-    ]
-
-    pane_id = None
-    for session_path in search_paths:
-        if session_path.exists():
-            try:
-                import json
-                with open(session_path) as f:
-                    data = json.load(f)
-                pane_id = data.get("pane_id")
-                if pane_id:
-                    break
-            except Exception:
-                continue
-
-    if not pane_id:
-        # No pane_id found, try ask command with full path
-        timeout = env_float("CCB_COMPLETION_HOOK_TIMEOUT", 10.0)
-        ask_paths = [
-            Path(__file__).resolve().parent / "ask",
-            Path.home() / ".local" / "share" / "codex-dual" / "bin" / "ask",
-            Path.home() / ".local" / "bin" / "ask",
+def find_wezterm_cli() -> str | None:
+    """Find wezterm CLI executable."""
+    import shutil
+    # Check environment variable first
+    wezterm_bin = os.environ.get("CCB_WEZTERM_BIN", "").strip()
+    if wezterm_bin and Path(wezterm_bin).exists():
+        return wezterm_bin
+    # Try shutil.which for PATH lookup
+    found = shutil.which("wezterm")
+    if found:
+        return found
+    # Common Windows locations
+    if os.name == "nt":
+        common_paths = [
+            Path(os.environ.get("PROGRAMFILES", "")) / "WezTerm" / "wezterm.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "WezTerm" / "wezterm.exe",
+            Path.home() / "scoop" / "apps" / "wezterm" / "current" / "wezterm.exe",
         ]
-        ask_cmd = None
-        for p in ask_paths:
+        for p in common_paths:
             if p.exists():
-                ask_cmd = str(p)
-                break
-        if not ask_cmd:
-            return 0
-        try:
-            result = subprocess.run(
-                [ask_cmd, caller, "--notify", "--no-wrap", message],
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
-            return result.returncode
-        except Exception:
-            return 0
+                return str(p)
+    return None
 
-    # Send directly via tmux using load-buffer + paste-buffer for multiline text
+
+def send_via_wezterm(pane_id: str, message: str, session_data: dict) -> bool:
+    """Send message to WezTerm pane using wezterm cli with stdin for large payloads."""
+    try:
+        wezterm = find_wezterm_cli()
+        if not wezterm:
+            return False
+
+        # Use stdin to avoid command line length limits on Windows
+        # wezterm cli send-text --pane-id <id> --no-paste reads from stdin if no text arg
+        result = subprocess.run(
+            [wezterm, "cli", "send-text", "--pane-id", pane_id, "--no-paste"],
+            input=message.encode("utf-8"),
+            capture_output=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            # Send Enter after text
+            subprocess.run(
+                [wezterm, "cli", "send-text", "--pane-id", pane_id, "--no-paste"],
+                input=b"\r",
+                capture_output=True,
+                timeout=5
+            )
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def send_via_tmux(pane_id: str, message: str) -> bool:
+    """Send message to tmux pane using load-buffer + paste-buffer."""
     try:
         import time
 
@@ -168,7 +150,7 @@ Result: {reply_preview}
             timeout=5
         )
         if load_result.returncode != 0:
-            raise Exception("load-buffer failed")
+            return False
         try:
             # Paste buffer to pane
             paste_result = subprocess.run(
@@ -184,7 +166,7 @@ Result: {reply_preview}
                     capture_output=True,
                     timeout=5
                 )
-                return 0
+                return True
         finally:
             # Clean up buffer
             subprocess.run(
@@ -194,28 +176,161 @@ Result: {reply_preview}
             )
     except Exception:
         pass
+    return False
 
-    # Fallback to ask command if tmux failed
-    timeout = env_float("CCB_COMPLETION_HOOK_TIMEOUT", 10.0)
+
+def find_ask_command() -> str | None:
+    """Find the ask command in common locations."""
     ask_paths = [
         Path(__file__).resolve().parent / "ask",
         Path.home() / ".local" / "share" / "codex-dual" / "bin" / "ask",
         Path.home() / ".local" / "bin" / "ask",
     ]
-    ask_cmd = None
+    # On Windows, also check LOCALAPPDATA
+    if os.name == "nt":
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            ask_paths.insert(0, Path(localappdata) / "codex-dual" / "bin" / "ask")
+
     for p in ask_paths:
         if p.exists():
-            ask_cmd = str(p)
-            break
+            return str(p)
+    return None
+
+
+def main() -> int:
+    if not env_bool("CCB_COMPLETION_HOOK_ENABLED", True):
+        return 0
+
+    parser = argparse.ArgumentParser(description="CCB Completion Hook")
+    parser.add_argument("--provider", required=True, help="Provider name (codex/gemini/opencode/droid)")
+    parser.add_argument("--caller", default="claude", help="Who initiated the request (claude/codex/droid)")
+    parser.add_argument("--output", default="", help="Output file path (optional)")
+    parser.add_argument("--reply", default="", help="Reply text (optional)")
+    parser.add_argument("--req-id", default="", help="Request ID")
+    args = parser.parse_args()
+
+    provider = args.provider.lower()
+    caller = args.caller.lower()
+    output_file = args.output or None
+
+    # Read reply from stdin using cross-platform helper
+    reply_content = ""
+    if not sys.stdin.isatty():
+        reply_content = read_stdin_text()
+    if not reply_content:
+        reply_content = args.reply or ""
+
+    # Construct notification message
+    provider_names = {
+        "codex": "Codex",
+        "gemini": "Gemini",
+        "opencode": "OpenCode",
+        "droid": "Droid",
+    }
+    provider_display = provider_names.get(provider, provider.capitalize())
+    req_id = args.req_id or "unknown"
+
+    if output_file:
+        message = f"""CCB_REQ_ID: {req_id}
+
+[CCB_TASK_COMPLETED]
+Provider: {provider_display}
+Output file: {output_file}
+
+Result: {reply_content}
+"""
+    else:
+        message = f"""CCB_REQ_ID: {req_id}
+
+[CCB_TASK_COMPLETED]
+Provider: {provider_display}
+
+Result: {reply_content}
+"""
+
+    # Find caller's pane_id from session file
+    session_files = {
+        "claude": ".claude-session",
+        "codex": ".codex-session",
+        "droid": ".droid-session",
+    }
+    session_filename = session_files.get(caller, ".claude-session")
+
+    # Search for session file in common locations
+    work_dir = os.environ.get("CCB_WORK_DIR", os.getcwd())
+    search_paths = [
+        Path(work_dir) / ".ccb_config" / session_filename,
+        Path.home() / ".local" / "share" / "codex-dual" / ".ccb_config" / session_filename,
+    ]
+    # On Windows, also check LOCALAPPDATA
+    if os.name == "nt":
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            search_paths.insert(0, Path(localappdata) / "codex-dual" / ".ccb_config" / session_filename)
+
+    pane_id = None
+    terminal = "tmux"  # default
+    session_data = {}
+
+    for session_path in search_paths:
+        if session_path.exists():
+            session_data = load_session_file(session_path)
+            pane_id = session_data.get("pane_id")
+            terminal = session_data.get("terminal", "tmux")
+            if pane_id:
+                break
+
+    if not pane_id:
+        # No pane_id found, try ask command
+        timeout = env_float("CCB_COMPLETION_HOOK_TIMEOUT", 10.0)
+        ask_cmd = find_ask_command()
+        if not ask_cmd:
+            return 0
+        try:
+            # Use sys.executable to run ask command on Windows
+            if os.name == "nt":
+                result = subprocess.run(
+                    [sys.executable, ask_cmd, caller, "--notify", "--no-wrap", message],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+            else:
+                result = subprocess.run(
+                    [ask_cmd, caller, "--notify", "--no-wrap", message],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+            return result.returncode
+        except Exception:
+            return 0
+
+    # Send directly via terminal backend
+    if send_via_terminal(pane_id, message, terminal, session_data):
+        return 0
+
+    # Fallback to ask command if terminal send failed
+    timeout = env_float("CCB_COMPLETION_HOOK_TIMEOUT", 10.0)
+    ask_cmd = find_ask_command()
     if not ask_cmd:
         return 0
     try:
-        subprocess.run(
-            [ask_cmd, caller, "--notify", "--no-wrap", message],
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        if os.name == "nt":
+            subprocess.run(
+                [sys.executable, ask_cmd, caller, "--notify", "--no-wrap", message],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+        else:
+            subprocess.run(
+                [ask_cmd, caller, "--notify", "--no-wrap", message],
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
     except Exception:
         pass
     return 0
