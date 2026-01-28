@@ -42,9 +42,9 @@ def _load_claude_skills() -> str:
         _SKILL_CACHE = ""
         return _SKILL_CACHE
     parts: list[str] = []
-    # Load from subdirectories (e.g., skills/ask/SKILL.md)
-    for name in ("ask", "pend", "ping"):
-        path = skills_dir / name / "SKILL.md"
+    # Load short skill files (aligned with droid)
+    for name in ("ask.md",):
+        path = skills_dir / name
         if not path.is_file():
             continue
         try:

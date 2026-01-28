@@ -89,23 +89,18 @@ fi
 
 SCRIPTS_TO_LINK=(
   bin/cask
-  bin/caskd
   bin/cpend
   bin/cping
   bin/gask
-  bin/gaskd
   bin/gpend
   bin/gping
   bin/oask
-  bin/oaskd
   bin/opend
   bin/oping
   bin/lask
-  bin/laskd
   bin/lpend
   bin/lping
   bin/dask
-  bin/daskd
   bin/dpend
   bin/dping
   bin/ask
@@ -130,6 +125,11 @@ LEGACY_SCRIPTS=(
   claude_codex
   claude_ai
   claude_bridge
+  caskd
+  gaskd
+  oaskd
+  laskd
+  daskd
 )
 
 usage() {
@@ -1420,6 +1420,85 @@ except Exception:
   fi
 }
 
+uninstall_claude_skills() {
+  local skills_dst="$HOME/.claude/skills"
+  local ccb_skills="ask ping pend autonew mounted all-plan docs"
+
+  if [[ ! -d "$skills_dst" ]]; then
+    return
+  fi
+
+  echo "Removing CCB Claude skills..."
+  for skill in $ccb_skills; do
+    if [[ -d "$skills_dst/$skill" ]]; then
+      rm -rf "$skills_dst/$skill"
+      echo "  Removed skill: $skill"
+    fi
+  done
+}
+
+uninstall_codex_skills() {
+  local skills_dst="${CODEX_HOME:-$HOME/.codex}/skills"
+  local ccb_skills="ask ping pend autonew mounted all-plan"
+
+  if [[ ! -d "$skills_dst" ]]; then
+    return
+  fi
+
+  echo "Removing CCB Codex skills..."
+  for skill in $ccb_skills; do
+    if [[ -d "$skills_dst/$skill" ]]; then
+      rm -rf "$skills_dst/$skill"
+      echo "  Removed skill: $skill"
+    fi
+  done
+}
+
+uninstall_droid_skills() {
+  local skills_dst="${FACTORY_HOME:-$HOME/.factory}/skills"
+  local ccb_skills="ask ping pend autonew mounted all-plan"
+
+  if [[ ! -d "$skills_dst" ]]; then
+    return
+  fi
+
+  echo "Removing CCB Droid skills..."
+  for skill in $ccb_skills; do
+    if [[ -d "$skills_dst/$skill" ]]; then
+      rm -rf "$skills_dst/$skill"
+      echo "  Removed skill: $skill"
+    fi
+  done
+}
+
+uninstall_droid_delegation() {
+  if ! command -v droid >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Removing Droid MCP delegation..."
+  if droid mcp remove ccb-delegation >/dev/null 2>&1; then
+    echo "  Removed ccb-delegation MCP"
+  fi
+}
+
+uninstall_droid_commands() {
+  local cmds_dst="${FACTORY_HOME:-$HOME/.factory}/commands"
+  local ccb_cmds="ask.md ping.md pend.md"
+
+  if [[ ! -d "$cmds_dst" ]]; then
+    return
+  fi
+
+  echo "Removing CCB Droid commands..."
+  for cmd in $ccb_cmds; do
+    if [[ -f "$cmds_dst/$cmd" ]]; then
+      rm -f "$cmds_dst/$cmd"
+      echo "  Removed command: $cmd"
+    fi
+  done
+}
+
 uninstall_all() {
   echo "INFO: Starting ccb uninstall..."
 
@@ -1465,6 +1544,21 @@ uninstall_all() {
 
   # 6. Remove tmux configuration
   uninstall_tmux_config
+
+  # 7. Remove Claude skills
+  uninstall_claude_skills
+
+  # 8. Remove Codex skills
+  uninstall_codex_skills
+
+  # 9. Remove Droid skills
+  uninstall_droid_skills
+
+  # 10. Remove Droid MCP delegation
+  uninstall_droid_delegation
+
+  # 11. Remove Droid commands
+  uninstall_droid_commands
 
   echo "OK: Uninstall complete"
   echo "   NOTE: Dependencies (python, tmux, wezterm) were not removed"

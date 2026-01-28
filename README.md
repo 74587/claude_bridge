@@ -50,6 +50,18 @@
 <h2 align="center">🚀 What's New</h2>
 
 <details open>
+<summary><b>v5.1.1</b> - Unified Daemon + Bug Fixes</summary>
+
+**🔧 Bug Fixes & Improvements:**
+- **Unified Daemon**: All providers now use unified askd daemon architecture
+- **Install/Uninstall**: Fixed installation and uninstallation bugs
+- **Process Management**: Fixed kill/termination issues
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
+
+</details>
+
+<details>
 <summary><b>v5.1.0</b> - Unified Command System + Windows WezTerm Support</summary>
 
 **🚀 Unified Commands** - Replace provider-specific commands with unified interface:

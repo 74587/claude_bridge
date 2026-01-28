@@ -29,18 +29,16 @@ $script:CCB_WEZTERM_END_MARKER = "-- CCB_WEZTERM_END"
 
 $script:SCRIPTS_TO_LINK = @(
   "ccb",
-  "cask", "caskd", "cpend", "cping",
-  "gask", "gaskd", "gpend", "gping",
-  "oask", "oaskd", "opend", "oping",
-  "lask", "laskd", "lpend", "lping",
-  "dask", "daskd", "dpend", "dping",
-  "ask", "ping", "pend", "ccb-completion-hook"
+  "cask", "cpend", "cping",
+  "gask", "gpend", "gping",
+  "oask", "opend", "oping",
+  "lask", "lpend", "lping",
+  "dask", "dpend", "dping",
+  "ask", "ping", "pend", "autonew", "ccb-completion-hook"
 )
 
 $script:CLAUDE_MARKDOWN = @(
-  "cpend.md", "cping.md",
-  "gpend.md", "gping.md",
-  "opend.md", "oping.md"
+  # Old CCB commands removed - replaced by unified ask/ping/pend skills
 )
 
 $script:LEGACY_SCRIPTS = @(
@@ -234,12 +232,12 @@ function Install-Native {
 
   $scripts = @(
     "ccb",
-    "cask", "caskd", "cping", "cpend",
-    "gask", "gaskd", "gping", "gpend",
-    "oask", "oaskd", "oping", "opend",
-    "lask", "laskd", "lping", "lpend",
-    "dask", "daskd", "dping", "dpend",
-    "ask", "ping", "pend", "ccb-completion-hook"
+    "cask", "cping", "cpend",
+    "gask", "gping", "gpend",
+    "oask", "oping", "opend",
+    "lask", "lping", "lpend",
+    "dask", "dping", "dpend",
+    "ask", "ping", "pend", "autonew", "ccb-completion-hook"
   )
 
   # In MSYS/Git-Bash, invoking the script file directly will honor the shebang.
@@ -331,6 +329,7 @@ function Install-Native {
   }
   Install-CodexSkills
   Install-ClaudeConfig
+  Install-DroidSkills
   Install-DroidDelegation -PythonCmd $pythonCmd -InstallPrefix $InstallPrefix
   Cleanup-LegacyFiles -InstallPrefix $InstallPrefix
 
@@ -452,6 +451,50 @@ function Install-CodexSkills {
   Write-Host "Updated Codex skills directory: $skillsDst"
 }
 
+function Install-DroidSkills {
+  $skillsSrc = Join-Path $repoRoot "droid_skills"
+  $factoryHome = if ($env:FACTORY_HOME) { $env:FACTORY_HOME } else { Join-Path $env:USERPROFILE ".factory" }
+  $skillsDst = Join-Path $factoryHome "skills"
+
+  if (-not (Test-Path $skillsSrc)) {
+    return
+  }
+
+  if (-not (Get-Command droid -ErrorAction SilentlyContinue)) {
+    return
+  }
+
+  if (-not (Test-Path $skillsDst)) {
+    New-Item -ItemType Directory -Path $skillsDst -Force | Out-Null
+  }
+
+  Write-Host "Installing Droid/Factory skills..."
+  Get-ChildItem -Path $skillsSrc -Directory | ForEach-Object {
+    $skillName = $_.Name
+    $srcDir = $_.FullName
+    $dstDir = Join-Path $skillsDst $skillName
+
+    $srcSkillMd = Join-Path $srcDir "SKILL.md"
+    if (-not (Test-Path $srcSkillMd)) {
+      return
+    }
+
+    if (-not (Test-Path $dstDir)) {
+      New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+    }
+
+    Copy-Item -Force $srcSkillMd (Join-Path $dstDir "SKILL.md")
+
+    # Copy additional subdirectories
+    Get-ChildItem -Path $srcDir -Directory | ForEach-Object {
+      Copy-Item -Recurse -Force $_.FullName (Join-Path $dstDir $_.Name)
+    }
+
+    Write-Host "  Updated Factory skill: $skillName"
+  }
+  Write-Host "Updated Factory skills directory: $skillsDst"
+}
+
 function Install-DroidDelegation {
   param(
     [string]$PythonCmd,
@@ -503,7 +546,7 @@ function Install-ClaudeConfig {
 
   # Install skills
   $skillsDir = Join-Path $claudeDir "skills"
-  $srcSkills = Join-Path $repoRoot "skills"
+  $srcSkills = Join-Path $repoRoot "claude_skills"
   if (Test-Path $srcSkills) {
     if (-not (Test-Path $skillsDir)) {
       New-Item -ItemType Directory -Path $skillsDir -Force | Out-Null
@@ -735,11 +778,13 @@ $($script:CCB_WEZTERM_END_MARKER)
 function Uninstall-Native {
   $binDir = Join-Path $InstallPrefix "bin"
 
+  # 1. Remove project directory
   if (Test-Path $InstallPrefix) {
     Remove-Item -Recurse -Force $InstallPrefix
     Write-Host "Removed $InstallPrefix"
   }
 
+  # 2. Remove from user PATH
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   if ($userPath) {
     $pathList = $userPath -split ";" | Where-Object { $_ }
@@ -749,6 +794,95 @@ function Uninstall-Native {
       $newPath = $newPathList -join ";"
       [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
       Write-Host "Removed $binDir from user PATH"
+    }
+  }
+
+  # 3. Remove Claude skills
+  $claudeSkillsDir = Join-Path $env:USERPROFILE ".claude\skills"
+  $ccbSkills = @("ask", "ping", "pend", "autonew", "mounted", "all-plan", "docs")
+  if (Test-Path $claudeSkillsDir) {
+    Write-Host "Removing CCB Claude skills..."
+    foreach ($skill in $ccbSkills) {
+      $skillPath = Join-Path $claudeSkillsDir $skill
+      if (Test-Path $skillPath) {
+        Remove-Item -Recurse -Force $skillPath
+        Write-Host "  Removed skill: $skill"
+      }
+    }
+  }
+
+  # 4. Remove CLAUDE.md CCB config block
+  $claudeMd = Join-Path $env:USERPROFILE ".claude\CLAUDE.md"
+  if (Test-Path $claudeMd) {
+    $content = Get-Content $claudeMd -Raw -Encoding UTF8
+    if ($content -match $script:CCB_START_MARKER) {
+      Write-Host "Removing CCB config from CLAUDE.md..."
+      $pattern = "(?s)$([regex]::Escape($script:CCB_START_MARKER)).*?$([regex]::Escape($script:CCB_END_MARKER))\r?\n?"
+      $content = $content -replace $pattern, ""
+      $content = $content.Trim() + "`n"
+      [System.IO.File]::WriteAllText($claudeMd, $content, $script:utf8NoBom)
+      Write-Host "  Removed CCB config block"
+    }
+  }
+
+  # 5. Remove settings.json permissions
+  $settingsFile = Join-Path $env:USERPROFILE ".claude\settings.json"
+  if (Test-Path $settingsFile) {
+    $permsToRemove = @("Bash(ask *)", "Bash(ping *)", "Bash(pend *)")
+    try {
+      $settings = Get-Content $settingsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+      if ($settings.permissions -and $settings.permissions.allow) {
+        $originalCount = $settings.permissions.allow.Count
+        $settings.permissions.allow = @($settings.permissions.allow | Where-Object { $_ -notin $permsToRemove })
+        if ($settings.permissions.allow.Count -ne $originalCount) {
+          $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+          Write-Host "Removed CCB permissions from settings.json"
+        }
+      }
+    } catch {
+      Write-Host "WARN: Could not clean settings.json: $_"
+    }
+  }
+
+  # 6. Remove Codex skills
+  $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+  $codexSkillsDir = Join-Path $codexHome "skills"
+  if (Test-Path $codexSkillsDir) {
+    Write-Host "Removing CCB Codex skills..."
+    foreach ($skill in $ccbSkills) {
+      $skillPath = Join-Path $codexSkillsDir $skill
+      if (Test-Path $skillPath) {
+        Remove-Item -Recurse -Force $skillPath
+        Write-Host "  Removed skill: $skill"
+      }
+    }
+  }
+
+  # 7. Remove Droid skills
+  $factoryHome = if ($env:FACTORY_HOME) { $env:FACTORY_HOME } else { Join-Path $env:USERPROFILE ".factory" }
+  $droidSkillsDir = Join-Path $factoryHome "skills"
+  if (Test-Path $droidSkillsDir) {
+    Write-Host "Removing CCB Droid skills..."
+    foreach ($skill in $ccbSkills) {
+      $skillPath = Join-Path $droidSkillsDir $skill
+      if (Test-Path $skillPath) {
+        Remove-Item -Recurse -Force $skillPath
+        Write-Host "  Removed skill: $skill"
+      }
+    }
+  }
+
+  # 8. Remove WezTerm config block
+  $weztermConfig = Join-Path $env:USERPROFILE ".wezterm.lua"
+  if (Test-Path $weztermConfig) {
+    $content = Get-Content $weztermConfig -Raw -Encoding UTF8
+    if ($content -match $script:CCB_WEZTERM_START_MARKER) {
+      Write-Host "Removing CCB config from .wezterm.lua..."
+      $pattern = "(?s)\r?\n?$([regex]::Escape($script:CCB_WEZTERM_START_MARKER)).*?$([regex]::Escape($script:CCB_WEZTERM_END_MARKER))\r?\n?"
+      $content = $content -replace $pattern, "`n"
+      $content = $content.Trim() + "`n"
+      [System.IO.File]::WriteAllText($weztermConfig, $content, $script:utf8NoBom)
+      Write-Host "  Removed CCB WezTerm config block"
     }
   }
 

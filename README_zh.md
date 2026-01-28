@@ -51,6 +51,18 @@
 <h2 align="center">🚀 新版本速览</h2>
 
 <details open>
+<summary><b>v5.1.1</b> - 统一 Daemon + Bug 修复</summary>
+
+**🔧 Bug 修复与改进：**
+- **统一 Daemon**：所有 provider 现在使用统一的 askd daemon 架构
+- **安装/卸载**：修复安装和卸载相关 bug
+- **进程管理**：修复 kill/终止问题
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
+
+</details>
+
+<details>
 <summary><b>v5.1.0</b> - 统一命令系统 + Windows WezTerm 支持</summary>
 
 **🚀 统一命令** - 用统一接口替代各 provider 独立命令：

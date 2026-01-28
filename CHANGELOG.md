@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v5.1.1 (2025-01-28)
+
+### 🔧 Bug Fixes & Improvements
+
+- **Unified Daemon**: All providers now use unified askd daemon architecture
+- **Install/Uninstall**: Fixed installation and uninstallation bugs
+- **Process Management**: Fixed kill/termination issues
+
 ### 🔧 ask Foreground Defaults
 
 - `bin/ask`: Foreground mode available via `--foreground`; `--background` forces legacy async

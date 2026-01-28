@@ -44,7 +44,7 @@ backend_env = get_backend_env()
 if backend_env and not os.environ.get("CCB_BACKEND_ENV"):
     os.environ["CCB_BACKEND_ENV"] = backend_env
 
-VERSION = "5.1.0"
+VERSION = "5.1.1"
 GIT_COMMIT = ""
 GIT_DATE = ""
 
@@ -4029,7 +4029,14 @@ def cmd_update(args):
         if result.returncode == 0:
             print(result.stdout.strip() if result.stdout.strip() else "Already up to date.")
             print("🔧 Reinstalling...")
-            subprocess.run([str(install_dir / "install.sh"), "install"])
+            # Windows: use install.ps1, Unix: use install.sh
+            if platform.system() == "Windows":
+                subprocess.run(
+                    ["powershell", "-ExecutionPolicy", "Bypass", "-File",
+                     str(install_dir / "install.ps1"), "install"]
+                )
+            else:
+                subprocess.run([str(install_dir / "install.sh"), "install"])
             # Show upgrade info
             new_info = _get_version_info(install_dir)
             old_str = _format_version_info(old_info)

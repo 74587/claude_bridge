@@ -49,9 +49,11 @@ PROVIDER_DAEMONS = {
 
 
 def _use_unified_daemon() -> bool:
-    """Check if unified askd daemon should be used."""
+    """Check if unified askd daemon should be used (default: True)."""
     val = (os.environ.get("CCB_UNIFIED_ASKD") or "").strip().lower()
-    return val in ("1", "true", "yes", "on")
+    if val in ("0", "false", "no", "off"):
+        return False
+    return True  # Default to unified daemon
 
 
 def _send_via_unified_daemon(
@@ -130,18 +132,16 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _default_foreground() -> bool:
-    # Allow explicit override to keep legacy background behavior.
+    # Allow explicit override
     if _env_bool("CCB_ASK_BACKGROUND", False):
         return False
     if _env_bool("CCB_ASK_FOREGROUND", False):
         return True
-    # Managed Codex tool environments clean up background processes aggressively.
-    if _env_bool("CCB_MANAGED", False):
-        return True
-    # Fallback: if Codex session markers exist, prefer foreground.
-    if os.environ.get("CODEX_SESSION_ID") or os.environ.get("CODEX_RUNTIME_DIR"):
-        return True
-    return False
+    # If CCB_CALLER is set, use background (nohup) mode
+    if os.environ.get("CCB_CALLER"):
+        return False
+    # No caller set, use foreground mode
+    return True
 
 
 def _default_caller() -> str:
@@ -282,7 +282,7 @@ def main(argv: list[str]) -> int:
             print(f"[ERROR] {e}", file=sys.stderr)
             return EXIT_ERROR
 
-    # Default async mode: background task with hook callback
+    # Default async mode: background task via nohup, using unified askd daemon
     task_id = make_task_id()
     log_dir = Path(tempfile.gettempdir()) / "ccb-tasks"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -291,9 +291,12 @@ def main(argv: list[str]) -> int:
     # Detect caller from environment or default to "claude"
     caller = _default_caller()
 
+    # Get the path to this script for recursive call with --foreground
+    ask_cmd = str(Path(__file__).resolve())
+
     # Platform-specific background execution
     if os.name == "nt":
-        # Windows: use PowerShell script to avoid .cmd escaping issues
+        # Windows: use PowerShell script
         DETACHED_PROCESS = 0x00000008
         CREATE_NO_WINDOW = 0x08000000
         CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -302,15 +305,14 @@ def main(argv: list[str]) -> int:
         msg_file = log_dir / f"ask-{provider}-{task_id}.msg"
         msg_file.write_text(message, encoding="utf-8")
 
-        # Write PowerShell script
+        # Write PowerShell script - call ask --foreground to use unified daemon
         script_file = log_dir / f"ask-{provider}-{task_id}.ps1"
-        # Use here-string and file input to avoid all escaping issues
         script_content = f'''$ErrorActionPreference = "SilentlyContinue"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $env:CCB_REQ_ID = "{task_id}"
 $env:CCB_CALLER = "{caller}"
 $env:CCB_WORK_DIR = "{os.getcwd()}"
-Get-Content -Path "{msg_file}" -Encoding UTF8 | & {daemon_cmd} --timeout {timeout}
+Get-Content -Path "{msg_file}" -Encoding UTF8 | python "{ask_cmd}" {provider} --foreground --timeout {timeout}
 '''
         script_file.write_text(script_content, encoding="utf-8")
 
@@ -322,12 +324,12 @@ Get-Content -Path "{msg_file}" -Encoding UTF8 | & {daemon_cmd} --timeout {timeou
             creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
         )
     else:
-        # Unix: use nohup to ensure process survives terminal close
+        # Unix: use nohup, call ask --foreground to use unified daemon
         bg_script = f'''
 export CCB_REQ_ID="{task_id}"
 export CCB_CALLER="{caller}"
 export CCB_WORK_DIR="{os.getcwd()}"
-{daemon_cmd} --timeout {timeout} <<'ASKEOF'
+python3 "{ask_cmd}" {provider} --foreground --timeout {timeout} <<'ASKEOF'
 {message}
 ASKEOF
 '''
